@@ -1,540 +1,275 @@
-# railway-update
-# Railway deployment
 import os
-import time
 import threading
-import statistics
+import time
 from collections import deque
+from statistics import mean, median
 
-import requests
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify
 
-# =========================================================
-# CONFIG
-# =========================================================
+try:
+    import telebot
+except ImportError:
+    telebot = None
+
+
+# ============================================================
+# 1XBET CRASH STATS BOT
+# Descriptive statistics only.
+# It does NOT predict the next crash or give betting signals.
+# ============================================================
 
 PORT = int(os.getenv("PORT", "8080"))
-
-# اختياري: Telegram
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-# =========================================================
-# FLASK WEBSITE
-# =========================================================
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
 app = Flask(__name__)
 
-HTML = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+bot = None
+if BOT_TOKEN and telebot is not None:
+    bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-    <title>Crash Analyzer</title>
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+# Keep the latest 200 manually entered multipliers in memory.
+results = deque(maxlen=200)
 
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #090b16;
-            color: white;
-        }
 
-        .container {
-            max-width: 700px;
-            margin: auto;
-            padding: 25px 15px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 25px;
-        }
-
-        .header h1 {
-            margin-bottom: 8px;
-            font-size: 32px;
-        }
-
-        .header p {
-            color: #aaa;
-        }
-
-        .card {
-            background: #121625;
-            border: 1px solid #242a40;
-            border-radius: 18px;
-            padding: 20px;
-            margin-bottom: 18px;
-        }
-
-        textarea {
-            width: 100%;
-            min-height: 120px;
-            resize: vertical;
-            background: #080b14;
-            color: white;
-            border: 1px solid #30374f;
-            border-radius: 12px;
-            padding: 15px;
-            font-size: 16px;
-            outline: none;
-        }
-
-        button {
-            width: 100%;
-            margin-top: 12px;
-            padding: 15px;
-            border: 0;
-            border-radius: 12px;
-            background: #ff7a00;
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        button:hover {
-            opacity: .9;
-        }
-
-        .result {
-            margin-top: 18px;
-        }
-
-        .item {
-            display: flex;
-            justify-content: space-between;
-            padding: 13px 0;
-            border-bottom: 1px solid #252b3d;
-        }
-
-        .item:last-child {
-            border-bottom: none;
-        }
-
-        .value {
-            font-weight: bold;
-            color: #ff9d3d;
-        }
-
-        .warning {
-            color: #ffb4b4;
-            background: #32191d;
-            padding: 12px;
-            border-radius: 10px;
-            margin-top: 15px;
-            line-height: 1.6;
-        }
-
-        .status {
-            text-align: center;
-            color: #55e38a;
-            margin-top: 15px;
-        }
-
-        .example {
-            color: #888;
-            font-size: 13px;
-            margin-top: 8px;
-        }
-    </style>
-</head>
-
-<body>
-
-<div class="container">
-
-    <div class="header">
-        <h1>🎯 Crash Analyzer</h1>
-        <p>تحليل إحصائي للجولات السابقة</p>
-    </div>
-
-    <div class="card">
-
-        <h3>أدخل النتائج السابقة</h3>
-
-        <textarea id="data"
-        placeholder="مثال:
-1.25
-2.40
-1.08
-5.70
-1.45
-3.20
-1.12
-8.90"></textarea>
-
-        <div class="example">
-            دخل الأرقام مفصولة بسطر أو فاصلة.
-        </div>
-
-        <button onclick="analyze()">
-            🔎 تحليل
-        </button>
-
-        <div id="result"></div>
-
-    </div>
-
-</div>
-
-<script>
-
-async function analyze() {
-
-    const data = document.getElementById("data").value;
-
-    const result = document.getElementById("result");
-
-    result.innerHTML = "⏳ جاري التحليل...";
-
-    try {
-
-        const response = await fetch("/analyze", {
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
-            },
-
-            body: JSON.stringify({
-                rounds: data
-            })
-        });
-
-        const json = await response.json();
-
-        if (json.status !== "success") {
-            result.innerHTML =
-                "<div class='warning'>" +
-                json.message +
-                "</div>";
-            return;
-        }
-
-        const a = json.analysis;
-
-        result.innerHTML = `
-
-            <div class="card result">
-
-                <div class="item">
-                    <span>عدد الجولات</span>
-                    <span class="value">${a.count}</span>
-                </div>
-
-                <div class="item">
-                    <span>المتوسط</span>
-                    <span class="value">${a.average}x</span>
-                </div>
-
-                <div class="item">
-                    <span>أقل نتيجة</span>
-                    <span class="value">${a.minimum}x</span>
-                </div>
-
-                <div class="item">
-                    <span>أعلى نتيجة</span>
-                    <span class="value">${a.maximum}x</span>
-                </div>
-
-                <div class="item">
-                    <span>نتائج أقل من 2x</span>
-                    <span class="value">${a.below_2} (${a.below_2_percent}%)</span>
-                </div>
-
-                <div class="item">
-                    <span>نتائج 2x أو أكثر</span>
-                    <span class="value">${a.above_2} (${a.above_2_percent}%)</span>
-                </div>
-
-                <div class="item">
-                    <span>نتائج 5x أو أكثر</span>
-                    <span class="value">${a.above_5}</span>
-                </div>
-
-                <div class="item">
-                    <span>الوسيط</span>
-                    <span class="value">${a.median}x</span>
-                </div>
-
-            </div>
-
-            <div class="warning">
-                ⚠️ هذا تحليل إحصائي للجولات السابقة فقط.
-                لا يمكن ضمان أو معرفة نتيجة الجولة القادمة، لأن نتائج Crash قد تكون عشوائية.
-            </div>
-        `;
-
-    } catch (error) {
-
-        result.innerHTML =
-            "<div class='warning'>وقع خطأ في الاتصال بالسيرفر.</div>";
-    }
-}
-
-</script>
-
-</body>
-</html>
-"""
-
+# ============================================================
+# RAILWAY HEALTH
+# ============================================================
 
 @app.route("/")
 def home():
-    return render_template_string(HTML)
+    return jsonify({
+        "status": "online",
+        "service": "1xBet Crash Stats Bot",
+        "telegram_bot": bool(bot),
+        "results_saved": len(results)
+    })
 
 
 @app.route("/health")
 def health():
-    return jsonify({
-        "status": "ok",
-        "service": "Crash Analyzer"
-    })
+    return jsonify({"status": "healthy"})
 
 
-@app.route("/analyze", methods=["POST"])
-def analyze():
+# ============================================================
+# HELPERS
+# ============================================================
 
-    from flask import request
+def parse_multiplier(value):
+    """
+    Accepts:
+      1.25
+      1,25
+      x1.25
+      1.25x
+    """
+    value = value.lower().strip()
+    value = value.replace("x", "")
+    value = value.replace(",", ".")
 
-    data = request.get_json(silent=True)
+    number = float(value)
 
-    if not data:
-        return jsonify({
-            "status": "error",
-            "message": "لم يتم إرسال البيانات."
-        }), 400
+    if number < 1:
+        raise ValueError("Multiplier must be >= 1.00")
 
-    raw = data.get("rounds", "")
+    if number > 100000:
+        raise ValueError("Multiplier is too large.")
 
-    if not raw:
-        return jsonify({
-            "status": "error",
-            "message": "دخل نتائج الجولات السابقة."
-        }), 400
+    return number
 
-    # تحويل الفواصل والأسطر إلى أرقام
-    raw = raw.replace(",", " ")
-    raw = raw.replace("x", " ")
-    raw = raw.replace("X", " ")
 
-    values = []
+def add_result(value):
+    number = parse_multiplier(value)
+    results.append(number)
+    return number
 
-    for item in raw.split():
 
-        try:
-            number = float(item)
+def stats():
+    if not results:
+        return None
 
-            if number > 0:
-                values.append(number)
+    values = list(results)
 
-        except ValueError:
-            continue
+    under_2 = sum(1 for x in values if x < 2)
+    from_2_to_5 = sum(1 for x in values if 2 <= x < 5)
+    from_5_to_10 = sum(1 for x in values if 5 <= x < 10)
+    over_10 = sum(1 for x in values if x >= 10)
 
-    if len(values) < 3:
-        return jsonify({
-            "status": "error",
-            "message": "خاص على الأقل 3 نتائج صحيحة."
-        }), 400
-
-    average = statistics.mean(values)
-    median = statistics.median(values)
-
-    below_2 = sum(1 for x in values if x < 2)
-    above_2 = sum(1 for x in values if x >= 2)
-    above_5 = sum(1 for x in values if x >= 5)
-
-    result = {
+    return {
         "count": len(values),
-
-        "average": round(average, 2),
-
-        "median": round(median, 2),
-
-        "minimum": round(min(values), 2),
-
-        "maximum": round(max(values), 2),
-
-        "below_2": below_2,
-
-        "below_2_percent": round(
-            (below_2 / len(values)) * 100,
-            1
-        ),
-
-        "above_2": above_2,
-
-        "above_2_percent": round(
-            (above_2 / len(values)) * 100,
-            1
-        ),
-
-        "above_5": above_5
+        "last": values[-1],
+        "average": mean(values),
+        "median": median(values),
+        "min": min(values),
+        "max": max(values),
+        "under_2": under_2,
+        "2_to_5": from_2_to_5,
+        "5_to_10": from_5_to_10,
+        "over_10": over_10,
     }
 
-    return jsonify({
-        "status": "success",
-        "analysis": result
-    })
+
+def stats_message():
+    data = stats()
+
+    if not data:
+        return (
+            "📊 <b>Crash Stats</b>\n\n"
+            "مازال ما دخلنا حتى نتيجة.\n\n"
+            "دخل مثلاً:\n"
+            "<code>/add 1.42</code>"
+        )
+
+    total = data["count"]
+
+    def pct(n):
+        return f"{(n / total) * 100:.1f}%"
+
+    recent = list(results)[-10:]
+    recent_text = " • ".join(f"{x:.2f}x" for x in recent)
+
+    return (
+        "📊 <b>1xBet Crash — Statistics</b>\n\n"
+        f"🔢 النتائج المسجلة: <b>{total}</b>\n"
+        f"🕐 آخر نتيجة: <b>{data['last']:.2f}x</b>\n"
+        f"📈 المتوسط: <b>{data['average']:.2f}x</b>\n"
+        f"📌 الوسيط: <b>{data['median']:.2f}x</b>\n"
+        f"⬇️ أقل نتيجة: <b>{data['min']:.2f}x</b>\n"
+        f"⬆️ أعلى نتيجة: <b>{data['max']:.2f}x</b>\n\n"
+        "📉 <b>التوزيع:</b>\n"
+        f"أقل من 2x: <b>{data['under_2']}</b> ({pct(data['under_2'])})\n"
+        f"2x إلى أقل من 5x: <b>{data['2_to_5']}</b> ({pct(data['2_to_5'])})\n"
+        f"5x إلى أقل من 10x: <b>{data['5_to_10']}</b> ({pct(data['5_to_10'])})\n"
+        f"10x أو أكثر: <b>{data['over_10']}</b> ({pct(data['over_10'])})\n\n"
+        f"🧾 آخر 10: <code>{recent_text}</code>\n\n"
+        "⚠️ الإحصائيات تصف النتائج السابقة فقط ولا تتنبأ بالنتيجة القادمة."
+    )
 
 
-# =========================================================
-# TELEGRAM BOT - OPTIONAL
-# =========================================================
+# ============================================================
+# TELEGRAM
+# ============================================================
 
-def telegram_bot():
+if bot:
 
-    if not BOT_TOKEN:
-        print("BOT_TOKEN غير موجود. Telegram bot متوقف.")
+    @bot.message_handler(commands=["start"])
+    def start(message):
+        bot.reply_to(
+            message,
+            "🎮 <b>1xBet Crash Stats Bot</b>\n\n"
+            "هاد البوت كيسجل النتائج اللي كتدخلها وكيعطيك إحصائيات وصفية.\n\n"
+            "الأوامر:\n"
+            "<code>/add 1.42</code> — إضافة نتيجة\n"
+            "<code>/add 2.35x</code> — إضافة نتيجة\n"
+            "<code>/stats</code> — الإحصائيات\n"
+            "<code>/last</code> — آخر النتائج\n"
+            "<code>/clear</code> — مسح النتائج\n"
+            "<code>/help</code> — المساعدة\n\n"
+            "⚠️ ما كاينش prediction مضمون للـCrash."
+        )
+
+    @bot.message_handler(commands=["help"])
+    def help_command(message):
+        start(message)
+
+    @bot.message_handler(commands=["add"])
+    def add_command(message):
+        parts = message.text.split(maxsplit=1)
+
+        if len(parts) != 2:
+            bot.reply_to(
+                message,
+                "❌ استعمل:\n<code>/add 1.42</code>"
+            )
+            return
+
+        try:
+            value = add_result(parts[1])
+            bot.reply_to(
+                message,
+                f"✅ تسجلت النتيجة: <b>{value:.2f}x</b>\n\n"
+                f"📊 المجموع: <b>{len(results)}</b>\n\n"
+                "استعمل /stats للإحصائيات."
+            )
+        except Exception as e:
+            bot.reply_to(message, f"❌ {str(e)}")
+
+    @bot.message_handler(commands=["stats"])
+    def stats_command(message):
+        bot.reply_to(message, stats_message())
+
+    @bot.message_handler(commands=["last"])
+    def last_command(message):
+        if not results:
+            bot.reply_to(message, "مازال ما كايناش نتائج.")
+            return
+
+        values = list(results)[-20:]
+        text = "🧾 <b>آخر النتائج</b>\n\n"
+
+        for i, value in enumerate(reversed(values), 1):
+            text += f"{i}. <b>{value:.2f}x</b>\n"
+
+        bot.reply_to(message, text)
+
+    @bot.message_handler(commands=["clear"])
+    def clear_command(message):
+        results.clear()
+        bot.reply_to(message, "🗑️ تم مسح النتائج المسجلة.")
+
+    @bot.message_handler(content_types=["text"])
+    def text_handler(message):
+        text = message.text.strip()
+
+        # Allow simply sending "1.42x" without /add.
+        try:
+            value = add_result(text)
+            bot.reply_to(
+                message,
+                f"✅ تسجلت: <b>{value:.2f}x</b>\n"
+                "استعمل /stats باش تشوف الإحصائيات."
+            )
+        except Exception:
+            bot.reply_to(
+                message,
+                "❌ ما فهمتش القيمة.\n\n"
+                "دخل مثلاً: <code>1.42x</code>\n"
+                "أو استعمل: <code>/add 1.42</code>"
+            )
+
+
+def run_bot():
+    if not bot:
+        print("BOT_TOKEN is missing or telebot is unavailable.")
         return
 
-    try:
-        import telebot
-
-        bot = telebot.TeleBot(BOT_TOKEN)
-
-        @bot.message_handler(commands=["start"])
-        def start(message):
-
-            bot.reply_to(
-                message,
-                "🎯 مرحبا بك في Crash Analyzer\n\n"
-                "أرسل لي نتائج الجولات السابقة، مثلا:\n\n"
-                "1.20\n"
-                "2.30\n"
-                "1.05\n"
-                "4.50\n"
-                "3.10\n\n"
-                "وسأعطيك التحليل الإحصائي."
+    while True:
+        try:
+            print("Starting Telegram polling...")
+            bot.infinity_polling(
+                timeout=30,
+                long_polling_timeout=30,
+                skip_pending=True
             )
-
-        @bot.message_handler(func=lambda message: True)
-        def analyze_message(message):
-
-            text = message.text or ""
-
-            text = text.replace(",", " ")
-            text = text.replace("x", " ")
-            text = text.replace("X", " ")
-
-            values = []
-
-            for item in text.split():
-
-                try:
-                    number = float(item)
-
-                    if number > 0:
-                        values.append(number)
-
-                except ValueError:
-                    continue
-
-            if len(values) < 3:
-
-                bot.reply_to(
-                    message,
-                    "❌ أرسل على الأقل 3 نتائج.\n\n"
-                    "مثال:\n"
-                    "1.20\n"
-                    "2.50\n"
-                    "1.10\n"
-                    "4.30"
-                )
-
-                return
-
-            average = statistics.mean(values)
-            median = statistics.median(values)
-
-            below_2 = sum(
-                1 for x in values if x < 2
-            )
-
-            above_2 = sum(
-                1 for x in values if x >= 2
-            )
-
-            above_5 = sum(
-                1 for x in values if x >= 5
-            )
-
-            response = (
-                "🎯 CRASH ANALYZER\n\n"
-
-                f"📊 عدد الجولات: {len(values)}\n"
-
-                f"📈 المتوسط: {average:.2f}x\n"
-
-                f"📌 الوسيط: {median:.2f}x\n"
-
-                f"⬇️ أقل نتيجة: {min(values):.2f}x\n"
-
-                f"⬆️ أعلى نتيجة: {max(values):.2f}x\n\n"
-
-                f"🔻 أقل من 2x: "
-                f"{below_2} "
-                f"({below_2 / len(values) * 100:.1f}%)\n"
-
-                f"🔺 2x أو أكثر: "
-                f"{above_2} "
-                f"({above_2 / len(values) * 100:.1f}%)\n"
-
-                f"🔥 5x أو أكثر: {above_5}\n\n"
-
-                "⚠️ التحليل مبني على النتائج السابقة فقط، "
-                "ولا يضمن نتيجة الجولة القادمة."
-            )
-
-            bot.reply_to(
-                message,
-                response
-            )
-
-        print("Telegram bot started.")
-
-        bot.infinity_polling(
-            timeout=30,
-            long_polling_timeout=30
-        )
-
-    except Exception as e:
-
-        print(
-            "Telegram error:",
-            str(e)
-        )
+        except Exception as e:
+            print("Telegram error:", e)
+            time.sleep(5)
 
 
-# =========================================================
+# ============================================================
 # START
-# =========================================================
+# ============================================================
 
 if __name__ == "__main__":
+    print("1xBet Crash Stats Bot starting...")
+    print("PORT:", PORT)
+    print("BOT_TOKEN configured:", bool(BOT_TOKEN))
 
-    print("=" * 50)
-    print("CRASH ANALYZER STARTING")
-    print("=" * 50)
+    threading.Thread(target=run_bot, daemon=True).start()
 
-    # تشغيل Telegram في Thread
-    if BOT_TOKEN:
-
-        thread = threading.Thread(
-            target=telegram_bot,
-            daemon=True
-        )
-
-        thread.start()
-
-    # تشغيل الموقع
     app.run(
         host="0.0.0.0",
-        port=PORT
+        port=PORT,
+        debug=False,
+        use_reloader=False
     )
