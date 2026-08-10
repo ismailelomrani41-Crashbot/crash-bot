@@ -1,1 +1,259 @@
 
+<!doctype html>
+
+<html lang="ar" dir="rtl">
+
+<head>
+
+<meta charset="utf-8">
+
+<meta
+name="viewport"
+content="width=device-width,initial-scale=1"
+>
+
+<title>Crash Analyzer</title>
+
+<link
+rel="stylesheet"
+href="/static/style.css"
+>
+
+</head>
+
+
+<body>
+
+
+<header>
+
+    <div>
+
+        <b>✈️ CRASH ANALYZER</b>
+
+        <small>
+            تحليل إحصائي للنتائج السابقة
+        </small>
+
+    </div>
+
+
+    <label>
+        ● متصل
+    </label>
+
+</header>
+
+
+
+<main>
+
+
+<section class="card hero">
+
+
+    <div class="row">
+
+        <div>
+
+            <small>
+                آخر نتيجة
+            </small>
+
+            <div
+            id="live"
+            class="big">
+                —
+            </div>
+
+        </div>
+
+
+        <strong class="badge">
+            LIVE
+        </strong>
+
+    </div>
+
+
+
+    <canvas id="chart"></canvas>
+
+
+
+    <div class="analysis">
+
+        <div>
+
+            <small>
+                التحليل الإحصائي للجولة القادمة
+            </small>
+
+            <strong id="risk">
+                —
+            </strong>
+
+        </div>
+
+
+        <p>
+            المؤشر إحصائي فقط ولا يضمن نتيجة الجولة.
+        </p>
+
+    </div>
+
+
+</section>
+
+
+
+
+<section class="grid">
+
+
+    <div class="card stat">
+
+        المتوسط
+
+        <b id="avg">
+            —
+        </b>
+
+        x
+
+    </div>
+
+
+
+    <div class="card stat">
+
+        الوسيط
+
+        <b id="med">
+            —
+        </b>
+
+        x
+
+    </div>
+
+
+
+    <div class="card stat">
+
+        أقل من 2x
+
+        <b id="under">
+            —
+        </b>
+
+        %
+
+    </div>
+
+
+
+    <div class="card stat">
+
+        فوق 2x
+
+        <b id="over">
+            —
+        </b>
+
+        %
+
+    </div>
+
+
+</section>
+
+
+
+
+<section class="card">
+
+
+    <div class="row">
+
+        <h2>
+            آخر النتائج
+        </h2>
+
+        <small>
+            تحديث يدوي
+        </small>
+
+    </div>
+
+
+
+    <div
+    id="history"
+    class="history">
+    </div>
+
+
+
+    <div class="add">
+
+
+        <input
+        id="value"
+        type="number"
+        min="1"
+        step=".01"
+        placeholder="مثال: 3.49"
+        >
+
+
+        <button
+        onclick="addResult()">
+
+            إضافة نتيجة
+
+        </button>
+
+
+    </div>
+
+
+</section>
+
+
+
+
+<section class="card">
+
+
+    <h2>
+        التحليل
+    </h2>
+
+
+    <p class="muted">
+
+        الموقع يحلل المتوسط والوسيط
+        ونسب النتائج تحت وفوق 2x
+        وسلسلة النتائج المنخفضة.
+
+        يمكن لاحقاً ربطه بمصدر بيانات حقيقي.
+
+    </p>
+
+
+</section>
+
+
+</main>
+
+
+
+<script
+src="/static/app.js">
+</script>
+
+
+</body>
+
+</html>
